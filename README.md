@@ -70,3 +70,5 @@ blue
 green
 yellow
 ```
+
+**Question**: what if one key is firmly embedded within another? Say the bounds are dates. I can have a key cover the month of December, but I want an interior section that _only_ covers the time between the 23rd and 28th (common time that people sometimes take off from work)? Should that be handled outside of the structure or would that be better tucked away in a structure within the value? Should the calling code have a bunch of `if` statements?
