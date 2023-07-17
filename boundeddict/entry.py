@@ -30,13 +30,6 @@ class Comparable(typing.Protocol, typing.Generic[T]):
     def __le__(self, other: Comparable[T]) -> bool:
         ...
 
-    # TODO: Don't require +/-; Find another way to find the most accurate children
-    def __sub__(self, other: Comparable[T]) -> T:
-        ...
-
-    def __add__(self, other: Comparable[T]) -> T:
-        ...
-
 
 class Bound(typing.Generic[T]):
     """
@@ -174,9 +167,48 @@ class Entry(typing.Generic[T, _KT]):
     Represents an individual value within a Bounded Dictionary
     """
     def __init__(self, lower_bound: _KT, upper_bound: _KT, value: T) -> None:
+        if lower_bound > upper_bound:
+            lower_bound, upper_bound = upper_bound, lower_bound
+
         self.__bound: Bound[_KT] = Bound(lower=lower_bound, upper=upper_bound)
         self.__value = value
         self.__children: typing.List[Entry[T, _KT]] = list()
+
+    @typing.overload
+    def set(self, bound: typing.Tuple[_KT, _KT], value: T) -> None:
+        lower_bound, upper_bound = bound
+
+        if lower_bound > upper_bound:
+            lower_bound, upper_bound = upper_bound, lower_bound
+
+        return self.set(lower_bound=lower_bound, upper_bound=upper_bound, value=value)
+
+    @typing.overload
+    def set(self, bounds: slice[_KT], value: T):
+        if bounds.start is None:
+            lower_bound = self.lower_bound
+        else:
+            lower_bound = bounds.start
+
+        if bounds.stop is None:
+            upper_bound = self.upper_bound
+        else:
+            upper_bound = bounds.stop
+
+        if lower_bound > upper_bound:
+            lower_bound, upper_bound = upper_bound, lower_bound
+
+        return self.set(lower_bound=lower_bound, upper_bound=upper_bound, value=value)
+
+    def set(self, lower_bound: _KT, upper_bound: _KT, value: T) -> None:
+        """
+        Set the value on this entry or one of its children
+        """
+        if lower_bound > upper_bound:
+            lower_bound, upper_bound = upper_bound, lower_bound
+
+        if self.lower_bound == lower_bound and self.upper_bound == upper_bound:
+            self.value = value
 
     @property
     def value(self) -> T:
@@ -205,16 +237,39 @@ class Entry(typing.Generic[T, _KT]):
         The lower bound defining what may be in this entry
         """
         return self.__bound.upper_bound
-    
-    @property
-    def search(self, lower_bound: _KT, upper_bound: _KT) -> typing.Optional[T]:
+
+    @typing.overload
+    def search(self, lower_bound: _KT, upper_bound: _KT) -> typing.Optional[typing.Union[T, typing.Sequence[T]]]:
         """
         Look for a value nested within this entry
         """
-        candidates: typing.Dict[Entry, int] = dict()
+        return self.search((lower_bound, upper_bound))
 
-        for child_entry in self.__children:
-            pass
+    def search(self, bounds: typing.Tuple[_KT, _KT]) -> typing.Optional[typing.Union[T, typing.Sequence[T]]]:
+        """
+        Look for a value nested within this entry
+        """
+        if not isinstance(bounds, typing.Sequence) or len(bounds) != 2:
+            raise ValueError(
+                f"'{str(bounds)}' cannot be used to search - "
+                "value must be a sequence of two values marking a lower and upper bound"
+            )
+
+        if bounds not in self:
+            return None
+
+        candidates: typing.List[Entry[T, _KT]] = list({
+            child_entry.search(bounds)
+            for child_entry in self.__children
+            if bounds in child_entry
+        })
+
+        if candidates and len(candidates) == 1:
+            return candidates[0]
+        elif candidates and len(candidates) > 1:
+            return candidates
+
+        return self.value
 
     def __contains__(self, bounds: typing.Tuple[_KT, _KT]) -> bool:
         if not isinstance(bounds, typing.Sequence) or len(bounds) != 2:
